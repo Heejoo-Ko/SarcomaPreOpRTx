@@ -1,0 +1,507 @@
+---
+title: "SarcomaPreOpRTx"
+author: "Heejoo"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    dev: jpeg
+    df_print: paged
+    fig_height: 6
+    fig_width: 10
+    highlight: textmate
+    theme: cosmo
+    toc: yes
+    toc_float:
+      collapsed: no
+    code_folding: show
+  word_document:
+    toc: yes
+    toc_depth: '3'
+  bookdown::word_document2:
+    fig_caption: yes
+editor_options:
+  chunk_output_type: console
+always_allow_html: yes
+---
+
+<style>
+   p {line-height: 2.5em;}
+   pre, code {white-space:pre !important; overflow-x:scroll !important}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, message = F, warning = F)
+```
+
+## Load & Input
+```{r}
+library(readxl)
+library(dplyr)
+library(tableone)
+library(DT)
+
+#read data
+
+setwd("C:/Users/USER/Desktop/2020-1학기/의학통계/sarcoma/preOP RTx")
+
+## 읽을 때부터 UK를 결측치로 
+a <- excel_sheets("sarcoma data sheet SMC 20200716.xlsx") %>% 
+  lapply(function(x){read_excel("sarcoma data sheet SMC 20200716.xlsx",sheet=x, skip=2, na = c("UK"))})
+a.rps<-excel_sheets("preop Bx. RPS 여부 20200712.xlsx") %>% 
+  lapply(function(x){read_excel("preop Bx. RPS 여부 20200712.xlsx",sheet=x, skip=2, na = c("UK"))})
+
+b <- a[[1]] %>% 
+  left_join(a[[2]], by = "환자번호") %>% left_join(a[[3]], by = "환자번호") %>% left_join(a[[4]], by = "환자번호") %>%
+  left_join(a[[5]], by = "환자번호") %>% left_join(a[[6]], by = "환자번호") %>% left_join(a[[7]], by = "환자번호")
+
+#Age 계산
+b$Age <- as.numeric(b[["수술날짜\r\n\r\ndd-mm-yyyy"]] - b[["생년월일\r\n\r\ndd-mm-yyyy"]])/365.25
+```
+
+## Methods
+```{r}
+# c <- b %>% 
+#   filter(`Primary 수술여부\r\n\r\n0. Primary tumor\r\n1. Residual after incomplete resection\r\n2. Local recurrence.x`== 0)
+c<-b
+
+out <- c %>% select(환자번호,Age,`성별\r\n\r\nM/F`)
+names(out)[3] <- "Sex"; names(out)[1] <- "ID"
+out$Sex <- as.factor(out$Sex)
+
+out.rps<-a.rps[[1]][c(4:6)]
+names(out.rps)[1]<-"ID"; names(out.rps)[2]<-"preOP Retroperitoneal sarcoma (RPS)"; names(out.rps)[3]<-"postOP Retroperitoneal sarcoma (RPS)"
+out<-merge(out,out.rps,by="ID")
+
+
+#preOpRTx : 시행(1|5)=TRUE, 시행x(4)=FALSE, 그외=NA
+out$preOpRTx <- ifelse(c[["RT timing\r\n\r\n0.None \r\n1.Preop only\r\n2. IORT only\r\n3.Preop + IORT\r\n4.Postop only\r\n5.Preop + postop boost\r\n6.IORT + postop"]] %in% c("1", "5"), 1,
+                       ifelse(c[["RT timing\r\n\r\n0.None \r\n1.Preop only\r\n2. IORT only\r\n3.Preop + IORT\r\n4.Postop only\r\n5.Preop + postop boost\r\n6.IORT + postop"]] == "4", 0, NA))
+
+#TE : 삽입(1)=TRUE, 삽입x(0)=FALSE
+out$TE <- ifelse(c[["Tisuue expander insertion \r\n유뮤\r\n\r\n0. No\r\n1. Yes"]] == "1", 1,
+                 ifelse(c[["Tisuue expander insertion \r\n유뮤\r\n\r\n0. No\r\n1. Yes"]]== "0",0, NA))
+
+#Group
+#"1" : preOP RTx 시행o
+#"2" : preOP PTx 시행x, TE 삽입 x
+#"3" : preOP RTx 시행x, TE 삽입 o
+out$Group <- as.factor(ifelse(out$preOpRTx==1,1,ifelse(out$TE ==0,2,3)))
+out$Group1vs23 <- as.factor(ifelse(out$Group == 1,1,23))
+out$Group1vs2 <- as.factor(ifelse(out$preOpRTx==1,1,ifelse(out$TE ==0,2,NA)))
+
+#out
+```
+
+Data for Table1
+```{r}
+#BMI
+height <- as.numeric(c[["키\r\n(cm)"]])/100
+weight <- as.numeric(c[["몸무게\r\n(kg)"]])
+out$BMI <- weight/height/height
+out$BMI_cat <- factor(ifelse(out$BMI < 18.5, "< 18.5", ifelse(out$BMI < 25, "< 25", ifelse(out$BMI < 30, "< 30", "≥ 30"))))
+
+
+#DM : 1=TRUE, 0=FALSE
+out$DM <- as.integer(c[["DM\r\n\r\n0. No\r\n1.yes"]])
+
+#HTN : 1=TRUE, 0=FALSE
+out$HTN <- as.integer(c[["HTN\r\n\r\n0. No\r\n1.yes"]])
+
+#COPD : 1=TRUE, 0=FALSE
+out$COPD <- as.integer(c[["COPD\r\n\r\n0. No\r\n1.yes"]])
+
+#Coronary artery disease : 1=TRUE, 0=FALSE
+out$CoronaryArteryDisease <- as.integer(c[["Coronary artery disease\r\n\r\n0. No\r\n1.yes"]])
+
+#Chronic renal disease : 1=TRUE, 0=FALSE
+out$ChronicRenalDisease <- as.integer(c[["Chronic renal disease\r\n\r\n0. No\r\n1.yes"]])
+
+
+#Prev abdominal OP Hx : 0="무", 1="유", 2="기타(laparo)"
+out$PrevAbdominalOp <- c[["이전\r\nabdominal op Hx \r\n여부\r\n\r\n0. 무\r\n1. 유\r\n2. 기타(laparo)"]]
+#out$PrevAbdominalOp <- as.factor(out$PrevAbdominalOp)
+
+#PreOP chemo : 1=TRUE, 0=FALSE
+out$preOpChemo <- as.integer(c[["Neoadjuvant chemo 여부\r\n\r\n0.No\r\n1.Yes"]])
+
+#Hb
+out$Hb <- as.numeric(c[["수술전 \r\n피검사\r\n\r\nHb\r\n(g/dL)"]])
+out$Hb_below9 <- as.integer(out$Hb < 9)  
+out$Hb_below10 <- as.integer(out$Hb < 10)
+  
+
+#Albumin
+out$Albumin <- as.numeric(c[["수술전 피검사\r\n\r\nAlbumin\r\n(g/dL)"]])
+out$Albumin_below3 <- as.integer(out$Albumin < 3)
+
+#PLT
+out$PLT <- as.numeric(c[["수술전 피검사\r\n\r\nPlatelet\r\n(1000/uL)"]])
+out$PLT_below50 <- as.integer(out$PLT < 50)
+out$PLT_below100 <- as.integer(out$PLT < 100)
+
+#PT INR
+out$PT_INR <- as.numeric(c[["수술전 피검사\r\n\r\nPT(INR)"]])
+out$PT_INR_over1.5 <- as.integer(out$PT_INR > 1.5)
+
+#Primary or Recurrent tumor : 0=Primary, 1:Residual after incomplete resection, 2=local recurrence
+out$PrimaryRecurrent <- as.integer(c[["Primary 수술여부\r\n\r\n0. Primary tumor\r\n1. Residual after incomplete resection\r\n2. Local recurrence.x"]])
+
+#Tumor size
+out$TumorSize <- as.numeric(c[["종양크기\r\nFirst dimension\r\n(mm)"]])
+
+#Tumor histologic subtype
+#LPS : 0. WD Liposarcoma / 1. DD Liposarcoma / 2. Pleomorphic Liposarcoma / 7. 중 comment 에 liposarcoma
+#nonLPS : 3. Leiomyosarcoma / 4. MPNST / 5. Solitary fibrous tumor / 6. PEComa / 7. 중 comment 에 liposarcoma 없음.
+
+out$TumorHistologicSubtype <- as.integer((c[["병리결과\r\n\r\n0. WD Liposarcoma\r\n1. DD Liposarcoma\r\n2. Pleomorphic Liposarcoma\r\n3. Leiomyosarcoma\r\n4. MPNST\r\n5. Solitary fibrous tumor\r\n6. PEComa\r\n7. Other"]] %in% c(0, 1, 2)) |
+                                       ((c[["병리결과\r\n\r\n0. WD Liposarcoma\r\n1. DD Liposarcoma\r\n2. Pleomorphic Liposarcoma\r\n3. Leiomyosarcoma\r\n4. MPNST\r\n5. Solitary fibrous tumor\r\n6. PEComa\r\n7. Other"]] == 7) &
+                             grepl("liposarcoma|Liposarcoma", c[["Other \r\n\r\ncomment"]])))  
+
+#FNCLCC grade
+out$FNCLCC <- as.factor(c[["FNCLCC grade\r\n\r\n1. total score 2-3\r\n2. total score 4-5\r\n3. total score 6,7,8"]])
+
+#Tumor Resection
+#R0/R1="0", R2="1", other=NA ("2"도 NA에 포함)
+out$Resection <- c[["Surgical margins\r\n\r\n0. R0/R1\r\n1. R2\r\n2. Not available"]]
+out$Resection <- as.factor(ifelse(out$Resection=="2", NA, out$Resection))
+
+#Combined Organ Resection
+# "colon resection" : Rt. + Lt. + rectum 
+# "small bowel resection" : small bowel + duodenum
+# "pancreas resection" : distal pan + PD 
+# "liver resection" 
+# "major vessel resection" : iliac a & v, IVC, aorta
+out$Resection_Colon <- as.integer(
+  (c[["동반절제 장기\r\nRight colon\r\n\r\n0. No\r\n1. Yes"]] == "1") | (c[["동반절제 장기\r\nLeft colon\r\n\r\n0. No\r\n1. Yes"]] == "1") | (c[["동반절제 장기\r\nRectum\r\n\r\n0. No\r\n1. Yes"]] == "1")
+  )
+
+out$Resection_SmallBowel <- as.integer(
+  (c[["동반절제 장기\r\nSmall bowel\r\n\r\n0. No\r\n1. Yes"]] == "1") | (c[["동반절제 장기\r\nDuodenum\r\n\r\n0. No\r\n1. Yes"]] == "1")
+  )
+
+out$Resection_Pancreas <- as.integer(
+  (c[["동반절제 \r\n장기\r\nDistal pancreas\r\n\r\n0. No\r\n1. Yes"]] == "1") | (c[["동반절제 \r\n장기\r\nPanreatico-duodenectomy\r\n\r\n0. No\r\n1. Yes"]] == "1")
+  )
+
+out$Resection_Liver <- as.integer((c[["동반절제 장기\r\nLiver\r\n\r\n0. No\r\n1. Yes"]]=="1"))
+
+out$Resection_MajorVesselResection <- as.integer((c[["동반절제 장기\r\nIliac vein\r\n\r\n0. No\r\n1. Yes"]] == "1") |
+                                                   (c[["동반절제 장기\r\nIVC\r\n\r\n0. No\r\n1. Yes"]] == "1") |
+                                                   (c[["동반절제 장기\r\nIliac artery\r\n\r\n0. No\r\n1. Yes"]] == "1") |
+                                                   (c[["동반절제 장기\r\nAorta\r\n\r\n0. No\r\n1. Yes"]] == "1"))
+
+#OP time
+out$opTime <- as.numeric(c[["수술시간\r\n(min)"]])
+
+#intra OP transfusion
+out$intraOpTransfusion <- as.integer(c[["PRBC 수혈 수"]])
+
+#Estimated blood loss
+out$EBL <- as.numeric(c[["EBL\r\n(ml)"]])
+
+#Follow up duration
+out$day_FU <- as.numeric(c[["마지막 f/u\r\n\r\ndd-mm-yyyy"]] - c[["수술날짜\r\n\r\ndd-mm-yyyy"]])
+
+#out
+```
+
+Data for Table2
+```{r}
+#Clavien Dindo grade
+#complication이 TRUE여야 grade가 2~5 생기는데 grade가 0인 경우는 사실 complication false에 해당
+
+out$ClavienDindoComplicationYesNo <- as.integer(c[["Clavien-Dindo complication \r\n\r\n0. No\r\n1. Yes"]])
+out$ClavienDindoGrade <- c[["Clavien-Dindo grade \r\n\r\n2/3a/3b/4a/4b/5"]]
+out$ClavienDindoGrade <- as.factor(ifelse(out$ClavienDindoGrade== "0" , NA, out$ClavienDindoGrade))
+out$ClavienDindoComplicationSevere<-ifelse(out$ClavienDindoComplicationYesNo==1 & c[["Clavien-Dindo grade \r\n\r\n2/3a/3b/4a/4b/5"]]=="2",
+                                     0,out$ClavienDindoComplicationYesNo)
+
+#post OP transfusion
+out$postOpTransfusion <- as.integer(c[["수술 후 PRBC 수혈 여부\r\n\r\n0. No\r\n1. Yes"]])
+
+#ICU care
+out$ICUcare <- as.integer(c[["ICU 입실여부\r\n\r\n0. No\r\n1. Yes"]])
+
+#Return to OR
+out$ReOP <- as.integer(c[["합병증으로 인한 Re-op 여부\r\n\r\n0. No\r\n1. Yes"]])
+
+#Hospital Stay after OP
+out$HospitalDay <- as.numeric(c[["재원일수(days)"]])
+
+# Complications
+for (vname in names(c)[c(128:135, 137:139)]){
+  vn.new <- gsub(" ", ".", strsplit(vname, "\r")[[1]][1])
+  out[[vn.new]] <- as.integer(c[[vname]])
+}
+out$Complication.others<-as.integer(ifelse(is.na(c[["\r\nOthers\r\n\r\ncomment"]]),0,1))
+
+#out
+```
+
+Data for Table3
+```{r}
+#RTx gray
+out$RTgray <- c[["RT dose\r\n(Gy)"]]
+
+#out
+```
+
+Data for Table4,5
+```{r}
+#Long term outcomes
+#Death : Alive(0) : FALSE, 사망(1) : TRUE, UK(2) : NA에 포함
+out$Death <- ifelse(c[["사망여부\r\n\r\n0.Alive\r\n1.Dead\r\n2.Unknown.y"]] == "1", 1, ifelse(c[["사망여부\r\n\r\n0.Alive\r\n1.Dead\r\n2.Unknown.y"]]== "0", 0, NA))
+
+#Recurrence
+out$recur_local <- c[["재발#1\r\n\r\n0: 무\r\n1: 유.x"]]
+out$recur_site <- c$`Site of local recurrence`
+out$recur_site <- ifelse(out$recur_site == "6", NA, out$recur_site)
+out$recur_day <- ifelse(c[["재발#1\r\n\r\n0: 무\r\n1: 유.x"]] == 1, 
+                        as.numeric(as.Date(as.integer(c[["Date of local recurrence"]]), origin = "1899-12-30") - as.Date(c[["수술날짜\r\n\r\ndd-mm-yyyy"]])),
+                        as.numeric(c[["마지막 f/u\r\n\r\ndd-mm-yyyy"]] - c[["수술날짜\r\n\r\ndd-mm-yyyy"]]))
+
+#out
+```
+
+Variable categorizing
+```{r}
+my_vars<-names(out)
+factor_vars <- c(names(out)[sapply(out, function(x){length(table(x))}) <= 5])
+conti_vars <- setdiff(my_vars, factor_vars)
+for (v in factor_vars){out[[v]] <- factor(out[[v]])}
+
+#factor_vars 중 fisher test 해야하는 변수들
+vars.fisher <- sapply(factor_vars,
+                      function(x){is(tryCatch(chisq.test(table(out[["Group"]], out[[x]])),error = function(e) e, warning=function(w) w), "warning")})
+vars.fisher <- factor_vars[vars.fisher]
+
+vars.fisher1vs23 <- sapply(factor_vars,
+                      function(x){is(tryCatch(chisq.test(table(out[["Group1vs23"]], out[[x]])),error = function(e) e, warning=function(w) w), "warning")})
+vars.fisher1vs23 <- factor_vars[vars.fisher1vs23]
+
+vars.fisher1vs2 <- sapply(factor_vars,
+                      function(x){is(tryCatch(chisq.test(table(out[["Group1vs2"]], out[[x]])),error = function(e) e, warning=function(w) w), "warning")})
+vars.fisher1vs2 <- factor_vars[vars.fisher1vs2]
+
+out
+
+datatable(cbind(c(1:51),factor_vars,c(conti_vars,rep("", 35))),
+          colnames = c("","factor_vars","conti_vars"))
+
+```
+
+### Table1 : Patients and operation characteristics
+```{r}
+table1_vars<-c("Age","Sex","BMI","BMI_cat","DM","HTN","COPD","CoronaryArteryDisease","ChronicRenalDisease",
+               "PrevAbdominalOp","preOpChemo","Hb","Hb_below9","Hb_below10","Albumin","Albumin_below3",
+               "PLT","PLT_below50","PLT_below100","PT_INR","PT_INR_over1.5",
+               "PrimaryRecurrent","TumorSize","TumorHistologicSubtype","FNCLCC",
+               "Resection","Resection_Colon","Resection_SmallBowel",
+               "Resection_Pancreas","Resection_Liver","Resection_MajorVesselResection",
+               "opTime","intraOpTransfusion","EBL","day_FU")
+
+table1_factor_vars<-table1_vars[table1_vars %in% factor_vars]
+table1_conti_vars<-table1_vars[table1_vars %in% conti_vars]
+
+# #Group 1 vs 2 vs 3
+# table1_Group <- CreateTableOne(vars=table1_vars, strata = "Group", data=out, factorVars = table1_factor_vars, argsNormal = list(var.equal = F))
+# print(table1_Group, showAllLevels = TRUE, exact = table1_factor_vars[table1_factor_vars %in% vars.fisher])
+# 
+# #Group 1 vs 23
+# table1_Group1vs23 <- CreateTableOne(vars=table1_vars, strata = "Group1vs23", data=out, factorVars = table1_factor_vars, argsNormal = list(var.equal = F))
+# print(table1_Group1vs23, showAllLevels = TRUE, exact = table1_factor_vars[table1_factor_vars %in% vars.fisher1vs23])
+# 
+# #Group 1 vs 2
+# table1_Group1vs2 <- CreateTableOne(vars=table1_vars, strata = "Group1vs2", data=out, factorVars = table1_factor_vars, argsNormal = list(var.equal = F))
+# print(table1_Group1vs2, showAllLevels = TRUE, exact = vars.fisher1vs2)
+
+#Total table
+
+table1_total<- lapply(table1_vars, function(va){
+  if (va %in% table1_conti_vars){
+    
+    forms <- as.formula(paste0(va, "~ Group"))
+    mean_sd <- aggregate(forms, data = out, FUN = function(x){c(mean = mean(x), sd = sd(x))})
+    
+    p<-oneway.test(forms, data = out)$p.value
+    p1vs23 <- t.test(as.formula(paste0(va, "~ Group1vs23")), data = out, var.equal = F)$p.value
+    p1vs2 <- t.test(as.formula(paste0(va, "~ Group1vs2")), data = out, var.equal = F)$p.value
+    
+    out.final <- c(va, "",
+                   paste0(round(mean_sd[[va]][, "mean"], 2), " (", round(mean_sd[[va]][, "sd"], 2), ")"),
+                   ifelse(p < 0.001, "< 0.001", round(p, 3)),
+                   ifelse(p1vs23 < 0.001, "< 0.001", round(p1vs23, 3)),
+                   ifelse(p1vs2 < 0.001, "< 0.001", round(p1vs2, 3)))
+    
+    return(out.final)
+    
+  } else if(va %in% table1_factor_vars) {
+    
+    tb <- table(out[[va]], out[["Group"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =3)
+    
+    p <- ifelse(va %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    p1vs23 <- ifelse(va %in% vars.fisher1vs23,
+                     fisher.test(table(out[[va]],out[["Group1vs23"]]))$p.value,
+                     chisq.test(table(out[[va]],out[["Group1vs23"]]))$p.value)
+    p1vs2 <- ifelse(va %in% vars.fisher1vs2,
+                     fisher.test(table(out[[va]],out[["Group1vs2"]]))$p.value,
+                     chisq.test(table(out[[va]],out[["Group1vs2"]]))$p.value)
+    
+    out.final <- cbind(c(paste0(va, " (%)"), rep("", nrow(tb.out) - 1)),
+                       rownames(tb),
+                       tb.out,
+                       c(ifelse(p < 0.001, "< 0.001", round(p, 3)), rep("", nrow(tb.out) - 1)),
+                       c(ifelse(p1vs23 < 0.001, "< 0.001", round(p1vs23, 3)), rep("", nrow(tb.out) - 1)),
+                       c(ifelse(p1vs2 < 0.001, "< 0.001", round(p1vs2, 3)), rep("", nrow(tb.out) - 1)))
+    return(out.final)
+  }
+}) %>% Reduce(rbind, .)
+
+table1_total<-rbind(c("n","",as.integer(summary(out$Group))[1:3],"","",""),table1_total)
+colnames(table1_total) <- c("Variable", "Subgroup", "Group1", "Group2","Group3", "p-value(all)","p-value(1vs23)","p-value(1vs2)")
+rownames(table1_total)<-NULL
+datatable(table1_total)
+
+
+```
+
+### Table2 : Complication outcomes including mortality
+```{r}
+
+table2_vars<-c("ClavienDindoComplicationYesNo","ClavienDindoGrade","ClavienDindoComplicationSevere",
+               "postOpTransfusion","ICUcare","ReOP","HospitalDay")
+complication_vars<-c("Abdominal.abscess","Bowel.anastomosis.leak","Biliary.leak","Bleeding","Evisceration","DVT",
+                     "Lymphatic.leak","Pancreatic.leak","Sepsis","Urinary.leak","Ileus","Complication.others")
+
+table2_factor_vars<-table2_vars[table2_vars %in% factor_vars]
+table2_conti_vars<-table2_vars[table2_vars %in% conti_vars]
+
+# #Group 1 vs 2 vs 3
+# table2_Group <- CreateTableOne(vars=table2_vars, strata = "Group", data=out, factorVars = table2_factor_vars, argsNormal = list(var.equal = F))
+# print(table2_Group, showAllLevels = TRUE, exact = table2_factor_vars[table2_factor_vars %in% vars.fisher])
+# 
+# #Group 1 vs 23
+# table2_Group1vs23 <- CreateTableOne(vars=table2_vars, strata = "Group1vs23", data=out, factorVars = table2_factor_vars, argsNormal = list(var.equal = F))
+# print(table2_Group1vs23, showAllLevels = TRUE, exact = table2_factor_vars[table2_factor_vars %in% vars.fisher1vs23])
+# 
+# #Group 1 vs 2
+# table2_Group1vs2 <- CreateTableOne(vars=table2_vars, strata = "Group1vs2", data=out, factorVars = table2_factor_vars, argsNormal = list(var.equal = F))
+# print(table2_Group1vs2, showAllLevels = TRUE, exact = table2_factor_vars[table2_factor_vars %in% vars.fisher1vs2])
+
+#Total table
+table2_total<- lapply(table2_vars, function(va){
+  if (va %in% table2_conti_vars){
+    
+    forms <- as.formula(paste0(va, "~ Group"))
+    mean_sd <- aggregate(forms, data = out, FUN = function(x){c(mean = mean(x), sd = sd(x))})
+    
+    p<-oneway.test(forms, data = out)$p.value
+    p1vs23 <- t.test(as.formula(paste0(va, "~ Group1vs23")), data = out, var.equal = F)$p.value
+    p1vs2 <- t.test(as.formula(paste0(va, "~ Group1vs2")), data = out, var.equal = F)$p.value
+    
+    out.final <- c(va, "",
+                   paste0(round(mean_sd[[va]][, "mean"], 2), " (", round(mean_sd[[va]][, "sd"], 2), ")"),
+                   ifelse(p < 0.001, "< 0.001", round(p, 3)),
+                   ifelse(p1vs23 < 0.001, "< 0.001", round(p1vs23, 3)),
+                   ifelse(p1vs2 < 0.001, "< 0.001", round(p1vs2, 3)))
+    
+    return(out.final)
+    
+  } else if(va %in% table2_factor_vars) {
+    
+    tb <- table(out[[va]], out[["Group"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =3)
+    
+    p <- ifelse(va %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    p1vs23 <- ifelse(va %in% vars.fisher1vs23,
+                     fisher.test(table(out[[va]],out[["Group1vs23"]]))$p.value,
+                     chisq.test(table(out[[va]],out[["Group1vs23"]]))$p.value)
+    p1vs2 <- ifelse(va %in% vars.fisher1vs2,
+                     fisher.test(table(out[[va]],out[["Group1vs2"]]))$p.value,
+                     chisq.test(table(out[[va]],out[["Group1vs2"]]))$p.value)
+    
+    out.final <- cbind(c(paste0(va, " (%)"), rep("", nrow(tb.out) - 1)),
+                       rownames(tb),
+                       tb.out,
+                       c(ifelse(p < 0.001, "< 0.001", round(p, 3)), rep("", nrow(tb.out) - 1)),
+                       c(ifelse(p1vs23 < 0.001, "< 0.001", round(p1vs23, 3)), rep("", nrow(tb.out) - 1)),
+                       c(ifelse(p1vs2 < 0.001, "< 0.001", round(p1vs2, 3)), rep("", nrow(tb.out) - 1)))
+    return(out.final)
+  }
+}) %>% Reduce(rbind, .)
+
+table2_total<-rbind(c("n","",as.integer(summary(out$Group))[1:3],"","",""),table2_total)
+colnames(table2_total) <- c("Variable", "Subgroup", "Group1", "Group2","Group3", "p-value(all)","p-value(1vs23)","p-value(1vs2)")
+datatable(table2_total)
+
+```
+
+### Table3 : Radiation gray among groups
+```{r}
+# #Group 1 vs 2 vs 3
+# table3_Group <- CreateTableOne(var="RTgray",strata="Group",data=out,argsNormal = list(var.equal = F))
+# table3_Group
+# 
+# #Group 1 vs 23
+# table3_Group1vs23 <- CreateTableOne(var="RTgray",strata="Group1vs23",data=out,argsNormal = list(var.equal = F))
+# table3_Group1vs23
+# 
+# #Group 1 vs 2
+# table3_Group1vs2 <- CreateTableOne(var="RTgray",strata="Group1vs2",data=out,argsNormal = list(var.equal = F))
+# table3_Group1vs2
+
+#Total table
+
+table3_total<-c(as.integer(summary(out$Group))[1:3],"","","")
+
+p<-oneway.test(RTgray~Group, data = out)$p.value
+p1vs23 <- t.test(RTgray~Group1vs23, data = out, var.equal = F)$p.value
+p1vs2 <- t.test(RTgray~Group1vs2, data = out, var.equal = F)$p.value
+mean_sd <- aggregate(RTgray~Group, data = out, FUN = function(x){c(mean = mean(x), sd = sd(x))})
+
+table3_total<-rbind(table3_total,
+                    c(as.character(c(paste0(round(mean_sd[["RTgray"]][, "mean"], 2), " (", round(mean_sd[["RTgray"]][, "sd"], 2), ")"))),
+                      ifelse(p < 0.001, "< 0.001", round(p, 3)),
+                      ifelse(p1vs23 < 0.001, "< 0.001", round(p1vs23, 3)),
+                      ifelse(p1vs2 < 0.001, "< 0.001", round(p1vs2, 3))))
+
+colnames(table3_total)<-c("Group1","Group2","Group3","p-value(all)","p-value(1vs23)","p-value(1vs2)")
+rownames(table3_total) <- c("n","RTgray")
+
+datatable(table3_total)
+
+```
+
+### Table4 : M+M risk factor analysis
+Recur KM plots
+```{r}
+library(jskm)
+library(survival)
+recurfit_Group<-survfit(Surv(recur_day, as.integer(as.vector(recur_local))) ~ Group, data = out)
+jskm(recurfit_Group, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6))
+
+recurfit_Group1vs23<-survfit(Surv(recur_day, as.integer(as.vector(recur_local))) ~ Group1vs23, data = out)
+jskm(recurfit_Group1vs23, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6))
+
+recurfit_Group1vs2<-survfit(Surv(recur_day, as.integer(as.vector(recur_local))) ~ Group1vs2, data = out)
+jskm(recurfit_Group1vs2, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6))
+```
+
+Death KM plots
+```{r}
+Deathfit_Group<-survfit(Surv(day_FU, as.integer(as.vector(Death))) ~ Group, data = out)
+jskm(Deathfit_Group, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6))
+
+Deathfit_Group1vs23<-survfit(Surv(day_FU, as.integer(as.vector(Death))) ~ Group1vs23, data = out)
+jskm(Deathfit_Group1vs23, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6))
+
+Deathfit_Group1vs2<-survfit(Surv(day_FU, as.integer(as.vector(Death))) ~ Group1vs2, data = out)
+jskm(Deathfit_Group1vs2, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6))
+```
+
+### Table5 : R2 resection risk factor analysis
+```{r}
+```
